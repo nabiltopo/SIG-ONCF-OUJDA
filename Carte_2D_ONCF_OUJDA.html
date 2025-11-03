@@ -1,0 +1,127 @@
+
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Carte 2D — ONCF Oujda</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; width: 100%; }
+    .topbar {
+      position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(255,255,255,0.92); border-radius: 12px; padding: 6px 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,.12);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .topbar .title { font-weight: 700; color: #0f172a; letter-spacing:.2px; }
+    .topbar img { height: 38px; object-fit: contain; }
+    .legend {
+      background: white; padding: 8px 10px; border-radius: 8px;
+      box-shadow: 0 3px 12px rgba(0,0,0,.15);
+      line-height: 1.2; font-size: 13px;
+    }
+    .legend .item { display: flex; align-items: center; margin: 6px 0; }
+    .legend .swatch { width: 14px; height: 14px; margin-right: 8px; border: 1px solid #444; }
+    .leaflet-popup-content table { border-collapse: collapse; }
+    .leaflet-popup-content td { border: 1px solid #e5e7eb; padding: 4px 6px; font-size: 12px; }
+    .leaflet-popup-content td.key { background: #f9fafb; font-weight: 600; }
+    .attribution {
+      position: absolute; bottom: 10px; left: 12px; z-index: 500;
+      background: rgba(255,255,255,0.85); padding: 2px 6px; border-radius: 6px; font-size: 11px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="topbar">
+    <img src="logo_left.png" alt="Soritopo" onerror="this.style.display='none'">
+    <div class="title">Carte 2D — ONCF Oujda</div>
+    <img src="logo_right.png" alt="ONCF" onerror="this.style.display='none'">
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { center: [34.6818, -1.9076], zoom: 14 });
+
+    // Fond OSM verrouillé
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 20,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Styles
+    const styleLimit = { color: '#2563eb', weight: 3, dashArray: '6,4', fill: false, opacity: 0.95 };
+    const styleConstruction = { color: '#7f1d1d', weight: 0.8, fillColor: '#ef4444', fillOpacity: 0.55 };
+
+    function highlightFeature(e) {
+      const layer = e.target;
+      layer.setStyle({ weight: 2, color: '#1f2937', fillOpacity: 0.75 });
+      if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront();
+    }
+    function resetHighlight(e) { constructions.resetStyle(e.target); }
+
+    function popupFromProps(props) {
+      const rows = Object.entries(props || {})
+        .filter(([k,v]) => v !== null && typeof v !== 'object')
+        .map(([k,v]) => `<tr><td class="key">${k}</td><td>${String(v)}</td></tr>`)
+        .join('');
+      return rows ? `<table>${rows}</table>` : '<em>Aucun attribut</em>';
+    }
+
+    let constructions = L.geoJSON(null, {
+      style: styleConstruction,
+      onEachFeature: (feature, layer) => {
+        layer.bindPopup(popupFromProps(feature.properties));
+        layer.on({ mouseover: highlightFeature, mouseout: resetHighlight });
+      }
+    });
+    let limite = L.geoJSON(null, { style: styleLimit });
+
+    Promise.all([
+      fetch('Limite.geojson').then(r => r.json()).catch(() => null),
+      fetch('Construction.geojson').then(r => r.json()).catch(() => null)
+    ]).then(([limData, consData]) => {
+      if (limData) limite.addData(limData).addTo(map);
+      if (consData) constructions.addData(consData).addTo(map);
+      const groups = [];
+      if (limite.getLayers().length) groups.push(limite);
+      if (constructions.getLayers().length) groups.push(constructions);
+      if (groups.length) map.fitBounds(L.featureGroup(groups).getBounds().pad(0.08));
+
+      // Légende
+      const legend = L.control({position: 'bottomright'});
+      legend.onAdd = function() {
+        const div = L.DomUtil.create('div', 'legend');
+        div.innerHTML = `
+          <div class="item"><span class="swatch" style="background:#ef4444;border-color:#7f1d1d"></span> Constructions</div>
+          <div class="item"><span class="swatch" style="background:transparent;border-color:#2563eb"></span> Limite</div>
+        `;
+        return div;
+      };
+      legend.addTo(map);
+    });
+
+    // Marqueur "Gare Oujda"
+    const gareOujda = L.marker([34.6818, -1.9076], {
+      icon: L.icon({
+        iconUrl: 'marker_pin.png',
+        iconSize: [22, 32],
+        iconAnchor: [11, 32],
+        popupAnchor: [0, -30]
+      })
+    }).addTo(map).bindPopup('<b>Gare Oujda</b><br><a target="_blank" href="https://maps.app.goo.gl/2aHqNBDpZfcJtcuq9">Ouvrir dans Google Maps</a>');
+
+    const badge = L.control({position: 'bottomleft'});
+    badge.onAdd = function() {
+      const div = L.DomUtil.create('div', 'attribution');
+      div.innerHTML = '© Carte 2D — ONCF Oujda (Fond OSM)';
+      return div;
+    };
+    badge.addTo(map);
+  </script>
+</body>
+</html>
